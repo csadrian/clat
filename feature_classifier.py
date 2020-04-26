@@ -17,10 +17,6 @@ import neptune
 import gin
 import gin.tf
 from absl import flags, app
-flags.DEFINE_multi_string('gin_file', None, 'List of paths to the config files.')
-flags.DEFINE_multi_string('gin_param', None, 'Newline separated list of Gin parameter bindings.')
-FLAGS = flags.FLAGS
-
 
 print(tf.__version__)
 tf.compat.v1.enable_eager_execution()
@@ -126,7 +122,8 @@ def build_model_simple_ff():
     
     return model
 
-def build_model_meta_attention():
+@gin.configurable
+def build_model_meta_attention(v_size=20):
     a = tf.keras.Input(batch_shape=(64, 1, 1, 512))
     x = Flatten()(a)
 
@@ -138,7 +135,7 @@ def build_model_meta_attention():
     x = tf.einsum('ij,ijk->ik', x, xx_mat)
 
     """
-    q, k, v = Magic(v_size=10, output_dim=NUM_CLASSES)(x)
+    q, k, v = Magic(v_size=v_size, output_dim=NUM_CLASSES)(x)
     xx = Attention()([q, v, k])
     xx_mat = tf.reshape(xx, (64, 512, NUM_CLASSES))
     x = tf.einsum('ij,ijk->ik', x, xx_mat)
@@ -203,7 +200,7 @@ def train_model(batch_size=64, epochs_per_class=20):
 
 
 def main(argv):
-    gin.parse_config_files_and_bindings(FLAGS.gin_file, FLAGS.gin_param)
+    gin.parse_config_files_and_bindings(FLAGS.gin_file, FLAGS.gin_param, skip_unknown=True)
 
     use_neptune = "NEPTUNE_API_TOKEN" in os.environ
     if use_neptune:
@@ -218,4 +215,8 @@ def main(argv):
     print('fin')
 
 if __name__ == '__main__':
+    flags.DEFINE_multi_string('gin_file', None, 'List of paths to the config files.')
+    flags.DEFINE_multi_string('gin_param', None, 'Newline separated list of Gin parameter bindings.')
+    FLAGS = flags.FLAGS
+
     app.run(main)

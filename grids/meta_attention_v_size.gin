@@ -1,0 +1,10 @@
+load_data.dataset_name = 'cifar100'
+
+build_model.model_name = 'meta_attention'
+build_model_meta_attention.v_size = [1, 2, 5, 10, 25, 50, 100, 200, 500]
+
+train_model.batch_size = 64
+train_model.epochs_per_class = 20
+
+descartes_builder.name = 'grid_v_size'
+descartes_builder.params = ['build_model_meta_attention.v_size']

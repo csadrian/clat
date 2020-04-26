@@ -1,0 +1,21 @@
+# Parameters for build_model:
+# ==============================================================================
+build_model.model_name = 'meta_attention'
+
+# Parameters for build_model_meta_attention:
+# ==============================================================================
+build_model_meta_attention.v_size = 200
+
+# Parameters for descartes_builder:
+# ==============================================================================
+descartes_builder.name = 'grid_v_size'
+descartes_builder.params = ['build_model_meta_attention.v_size']
+
+# Parameters for load_data:
+# ==============================================================================
+load_data.dataset_name = 'cifar100'
+
+# Parameters for train_model:
+# ==============================================================================
+train_model.batch_size = 64
+train_model.epochs_per_class = 20
