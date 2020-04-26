@@ -1,6 +1,6 @@
 import matplotlib
 matplotlib.use('Agg')
-import os
+import os, sys
 import matplotlib.pyplot as plt
 import numpy as np
 import tensorflow as tf
@@ -12,6 +12,8 @@ from tensorflow.keras.optimizers import SGD
 from tensorflow.keras.layers import Dense, Activation, Flatten, Dropout, Attention, Lambda
 from tensorflow.keras import optimizers, regularizers, callbacks
 #from keras_multi_head import MultiHeadAttention
+
+np.set_printoptions(threshold=sys.maxsize)
 
 import neptune
 import gin
@@ -91,21 +93,23 @@ def plot_history(history, name):
 
 class Magic(tf.keras.layers.Layer):
 
-  def __init__(self, input_dim=512, k_dim=100, v_size=30, output_dim=100):
+  def __init__(self, input_dim=512, k_dim=100, v_size=30, output_dim=100, q_proj_trainable=True, k_proj_trainable=True, v_proj_trainable=True):
     super(Magic, self).__init__()
     self.q_proj = self.add_weight(shape=(input_dim, k_dim),
                              initializer='random_normal',
-                             trainable=True)
+                             trainable=q_proj_trainable)
     self.k_proj = self.add_weight(shape=(v_size, k_dim),
                              initializer='random_normal',
-                             trainable=True)
+                             trainable=k_proj_trainable)
     self.v_proj = self.add_weight(shape=(v_size, output_dim * input_dim),
                              initializer='random_normal',
-                             trainable=True)
+                             trainable=v_proj_trainable)
 
   def call(self, inputs):
     q = tf.matmul(inputs, self.q_proj)
-    k = self.k_proj
+    q = q / tf.linalg.norm(q, axis=0)
+    #k = tf.matmul(inputs, self.k_proj)
+    k = self.k_proj / tf.linalg.norm(self.k_proj, axis=0)
     v = self.v_proj
     return q, k, v
 
@@ -123,7 +127,7 @@ def build_model_simple_ff(num_classes):
     return model
 
 @gin.configurable
-def build_model_meta_attention(num_classes, v_size=20):
+def build_model_meta_attention(num_classes, v_size=20, q_proj_trainable=True, k_proj_trainable=True, v_proj_trainable=True):
     a = tf.keras.Input(batch_shape=(64, 1, 1, 512))
     x = Flatten()(a)
 
@@ -135,16 +139,19 @@ def build_model_meta_attention(num_classes, v_size=20):
     x = tf.einsum('ij,ijk->ik', x, xx_mat)
 
     """
-    q, k, v = Magic(v_size=v_size, output_dim=num_classes)(x)
+    q, k, v = Magic(v_size=v_size, output_dim=num_classes, q_proj_trainable=q_proj_trainable, k_proj_trainable=k_proj_trainable, v_proj_trainable=v_proj_trainable)(x)
     xx = Attention()([q, v, k])
+
+    scores = tf.nn.softmax(tf.matmul(q, tf.transpose(k)))
     xx_mat = tf.reshape(xx, (64, 512, num_classes))
     x = tf.einsum('ij,ijk->ik', x, xx_mat)
 
     z = Activation('softmax')(x)
     #z = Dense(NUM_CLASSES, activation='softmax')(x)
     model = Model(inputs=a, outputs=z)
-    return model
+    model_scores = Model(inputs=a, outputs=scores)
 
+    return model, model_scores
 
 @gin.configurable
 def build_model(num_classes, model_name=gin.REQUIRED):
@@ -162,9 +169,9 @@ def train_model(batch_size=64, epochs_per_class=20):
     x_train, y_train, x_test, y_test = data.get_tuple()
     num_classes = data.num_classes
 
-    model = build_model(num_classes = num_classes)
+    model, model_scores = build_model(num_classes = num_classes)
     model.summary()
-    
+
     reduce_lr = callbacks.ReduceLROnPlateau(monitor='val_loss', factor=0.2,
                                             patience=5, min_lr=0.00001)
 
@@ -192,6 +199,12 @@ def train_model(batch_size=64, epochs_per_class=20):
         hist_data['loss'].extend(history.history['loss'])
         hist_data['val_acc'].extend(history.history['val_acc'])
         hist_data['val_loss'].extend(history.history['val_loss'])
+
+        pred = model_scores.predict(x_test)
+        for j in range(num_classes):
+            counts = np.bincount(np.argmax(pred[(y_test == j)], axis=-1))
+            print('counts: ', j, counts)
+        #print(pred)
 
     print('\n# Evaluate on test data')
     results = model.evaluate(x_test, y_test, batch_size=batch_size)
