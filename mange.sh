@@ -7,6 +7,6 @@ do
             continue
         fi
         echo -n > ${sema_file}
-        exec python $1 --gin_file=${gin_config} > ${dir}/cout 2> ${dir}/cerr
+        python $1 --gin_file=${gin_config} > ${dir}/cout 2> ${dir}/cerr
     fi
 done
