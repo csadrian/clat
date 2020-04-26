@@ -51,7 +51,7 @@ def load_data(dataset_name='cifar100', batch_size=None, full_batches_only=True):
         x_train = data['X'][:size]
         y_train = data['y'][:size]
 
-    with np.load(train_data_file) as data:
+    with np.load(test_data_file) as data:
         size = (data['X'].shape[0] // batch_size) * batch_size if full_batches_only else data['X'].shape
         x_test = data['X'][:size]
         y_test = data['y'][:size]
@@ -111,19 +111,19 @@ class Magic(tf.keras.layers.Layer):
 
 
 
-def build_model_simple_ff():
+def build_model_simple_ff(num_classes):
 
     model = tf.keras.Sequential()
     model.add(Flatten())
-    model.add(Dense(512, kernel_regularizer=regularizers.l2(WEIGHT_DECAY)))
-    model.add(Activation('relu'))
-    model.add(Dense(NUM_CLASSES))
+    #model.add(Dense(512, kernel_regularizer=regularizers.l2(WEIGHT_DECAY)))
+    #model.add(Activation('relu'))
+    model.add(Dense(num_classes))
     model.add(Activation('softmax'))
-    
+    model.build(input_shape=(1,1,512))
     return model
 
 @gin.configurable
-def build_model_meta_attention(v_size=20):
+def build_model_meta_attention(num_classes, v_size=20):
     a = tf.keras.Input(batch_shape=(64, 1, 1, 512))
     x = Flatten()(a)
 
@@ -135,9 +135,9 @@ def build_model_meta_attention(v_size=20):
     x = tf.einsum('ij,ijk->ik', x, xx_mat)
 
     """
-    q, k, v = Magic(v_size=v_size, output_dim=NUM_CLASSES)(x)
+    q, k, v = Magic(v_size=v_size, output_dim=num_classes)(x)
     xx = Attention()([q, v, k])
-    xx_mat = tf.reshape(xx, (64, 512, NUM_CLASSES))
+    xx_mat = tf.reshape(xx, (64, 512, num_classes))
     x = tf.einsum('ij,ijk->ik', x, xx_mat)
 
     z = Activation('softmax')(x)
@@ -149,9 +149,9 @@ def build_model_meta_attention(v_size=20):
 @gin.configurable
 def build_model(num_classes, model_name=gin.REQUIRED):
     if model_name == 'simple_ff':
-        return build_model_simple_ff()
+        return build_model_simple_ff(num_classes=num_classes)
     elif model_name == 'meta_attention':
-        return build_model_meta_attention()
+        return build_model_meta_attention(num_classes=num_classes)
     else:
         raise Exception('Model not implemented: ' + str(model_name))
  
