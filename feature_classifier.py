@@ -163,13 +163,40 @@ def build_model(num_classes, model_name=gin.REQUIRED):
         return build_model_meta_attention(num_classes=num_classes)
     else:
         raise Exception('Model not implemented: ' + str(model_name))
- 
+
+
 @gin.configurable
-def train_model(batch_size=64, epochs_per_class=20):
+def train_model(batch_size=64, epochs_per_class=20, num_splits=None):
 
     data = load_data(batch_size=batch_size)
     x_train, y_train, x_test, y_test = data.get_tuple()
     num_classes = data.num_classes
+
+    if num_splits is None:
+        num_splits = num_classes
+    print('Number of splits: ', num_splits)
+
+    train_datasets = []
+
+    if num_splits > 1:
+        assert  num_classes % num_splits == 0,(
+            'The number classes should be divisible by the number of splits.')
+        num_concurrent_classes = num_classes // num_splits
+        labels = list(range(num_classes))
+
+        concurrent_labels = None
+
+        for i in range(0, num_classes, num_concurrent_classes):
+            concurrent_labels = labels[i:i+num_concurrent_classes]
+            filter_mask = np.isin(y_train, concurrent_labels)
+            x_train_filtered = x_train[filter_mask]
+            y_train_filtered = y_train[filter_mask]
+            train_datasets.append((x_train_filtered, y_train_filtered))
+    else:
+        train_datasets = [(x_train, y_train)]
+
+    assert len(train_datasets) == num_splits, (
+        'Number of training datasets must be equal to number of splits.')
 
     model, model_scores = build_model(num_classes = num_classes)
     model.summary()
@@ -184,10 +211,10 @@ def train_model(batch_size=64, epochs_per_class=20):
 
     print('# Fit model on training data')
     hist_data = {'acc': [], 'loss': [], 'val_acc': [], 'val_loss': []}
-    for i in range(num_classes):
-        print('\nFIT ON {}. CLASS\n'.format(i))
-        x = x_train[(y_train == i)]
-        y = y_train[(y_train == i)]
+    for i in range(num_splits):
+        print('\nFIT ON {}. SPLIT\n'.format(i))
+        x = train_datasets[i][0]
+        y = train_datasets[i][1]
 
         size = x.shape[0]//batch_size * batch_size
         x = x[:size]
@@ -237,7 +264,7 @@ def main(argv):
         #  neptune.append_tag(tag)
 
     history = train_model()
-    plot_history(history, 'attention_icl' + FLAGS.gin_file)
+    plot_history(history, FLAGS.gin_file[0].split('/')[1])
     print('fin')
 
 if __name__ == '__main__':

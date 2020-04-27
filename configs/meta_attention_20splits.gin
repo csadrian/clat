@@ -1,0 +1,7 @@
+load_data.dataset_name = 'cifar100'
+
+build_model.model_name = 'meta_attention'
+
+train_model.batch_size = 64
+train_model.epochs_per_class = 20
+train_model.num_splits = 20
