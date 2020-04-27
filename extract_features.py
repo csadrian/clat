@@ -7,54 +7,57 @@ from tensorflow.keras.models import Model
 
 tf.enable_eager_execution()
 
-MODEL_PATH = 'cifar10vgg.h5'
+MODEL_PATH = 'pretrained_models/cifar100vgg.h5'
 DATA_DIR = None
-DATASET_NAME = 'cifar10'
-NUM_CLASSES = 10
+DATASET_NAME = 'cifar100'
+NUM_CLASSES = 100
 IMAGE_SHAPE = (32, 32, 3)
 OUT_LAYER_INDICES = [51]
 BATCH_SIZE = 8
-SPLIT = 'test'
+SPLIT = 'train'
 
 
-def preprocess(model_path, ds):
-    if model_path not in ['cifar10vgg.h5', 'cifar100vgg.h5']:
-        def normalize(image, label):
+def preprocess(model_name, ds):
+    print('Preprocessing images.')
+    if model_name not in ['cifar10vgg.h5', 'cifar100vgg.h5']:
+        def normalize(ds_entry):
+            image = ds_entry['image']
             image = tf.cast(image, tf.float32)
             image = (image/127.5) - 1
-            return image, label
+            ds_entry['image'] = image
+            return ds_entry
         return ds.map(normalize)
 
-    elif model_path == 'cifar10vgg.h5':
+    elif model_name == 'cifar10vgg.h5':
         mean = 120.707
         std = 64.15
-    elif model_path == 'cifar100vgg.h5':
+    elif model_name == 'cifar100vgg.h5':
         mean = 121.936
         std = 68.389
 
-    print('normalize - mean, std: ', mean, std)
-    def normalize(image, label):
+    def normalize(ds_entry):
         print('normalize - mean, std: ', mean, std)
+        image = ds_entry['image']
         image = tf.cast(image, tf.float32)
-        return (image-mean)/(std+1e-7), label
+        image = (image-mean)/(std+1e-7)
+        ds_entry['image'] = image
+        return ds_entry
 
     ds = ds.map(normalize)
     return ds
 
 
 def get_dataset(dataset_name, data_dir, ds_split):
-    ds_train, ds_info = tfds.load(name=dataset_name,
-                                  data_dir=data_dir,
-                                  split=ds_split,
-                                  with_info=True,
-                                  as_supervised=True)
-    class_names = ds_info.features["label"].names
-    assert isinstance(ds_train, tf.data.Dataset)
-    return ds_train
+    ds, ds_info = tfds.load(name=dataset_name,
+                            data_dir=data_dir,
+                            split=ds_split,
+                            with_info=True)
+    assert isinstance(ds, tf.data.Dataset)
+    return ds
 
 
 def get_model(image_shape, num_classes, out_layer_idx, model_path=None):
-    if model_path in ['cifar10vgg.h5', 'cifar100vgg.h5']:
+    if 'cifar10vgg.h5' in model_path or 'cifar100vgg.h5' in model_path:
         from tensorflow.keras.models import Sequential
         from tensorflow.keras.layers import Dense, Conv2D, Activation, \
             BatchNormalization, Dropout, MaxPooling2D, Flatten
@@ -179,14 +182,21 @@ def get_model(image_shape, num_classes, out_layer_idx, model_path=None):
 
 
 def extract_featuremaps(ds_split, model_path, ds, model, out_layers, batch_size):
-    ds = preprocess(model_path, ds)
+    model_name = model_path.split('/')[-1]
+    ds = preprocess(model_name, ds)
 
     print('Extracting fetures from model.')
     outputs = [[] for i in range(len(out_layers))]
     class_labels = []
 
+    if 'cifar100' in model_path:
+        superclass_labels = []
+    else:
+        superclass_labels = None
+
     for item in ds.batch(batch_size).repeat(1):
-        images, labels = item[0].numpy(), item[1].numpy()
+        images, labels = item['image'].numpy(), item['label'].numpy()
+
         class_labels.append(labels)
         model_outputs = model.predict(images)
         if len(outputs) == 1:
@@ -195,16 +205,26 @@ def extract_featuremaps(ds_split, model_path, ds, model, out_layers, batch_size)
         for idx, layer in enumerate(out_layers):
             layer_output = model_outputs[idx]
             outputs[idx].append(layer_output)
+        if superclass_labels is not None:
+            superclass_labels.append(item['coarse_label'])
 
     target = np.concatenate(class_labels, axis=0)
+    if superclass_labels is not None:
+        superclass_target = np.concatenate(superclass_labels, axis=0)
 
     for i in range(len(outputs)):
         output = np.concatenate(outputs[i], axis=0)
         print('Final array shape: ', output.shape)
         print('Saving {} layer outputs.'.format(out_layers[i].name))
-        np.savez('{}_{}_{}_features'.format(ds_split, model_path.split('.')[0], out_layers[i].name),
-                 X=output,
-                 y=target)
+        if superclass_labels is not None:
+            np.savez('{}_{}_{}_features'.format(ds_split, model_name.split('.')[0], out_layers[i].name),
+                     X=output,
+                     y=target,
+                     superclass=superclass_target)
+        else:
+            np.savez('{}_{}_{}_features'.format(ds_split, model_name.split('.')[0], out_layers[i].name),
+                     X=output,
+                     y=target)
 
 
 if __name__ == '__main__':
