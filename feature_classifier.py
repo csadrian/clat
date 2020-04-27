@@ -54,6 +54,9 @@ def load_data(dataset_name='cifar100', batch_size=None, full_batches_only=True):
         size = (data['X'].shape[0] // batch_size) * batch_size if full_batches_only else data['X'].shape
         x_train = data['X'][:size]
         y_train = data['y'][:size]
+        if 'superclass' in data.keys():
+            y_train = (y_train, data['superclass'][:size])
+
 
     with np.load(test_data_file) as data:
         size = (data['X'].shape[0] // batch_size) * batch_size if full_batches_only else data['X'].shape
@@ -67,9 +70,8 @@ def load_data(dataset_name='cifar100', batch_size=None, full_batches_only=True):
     else:
         num_classes = 10
 
-    dataset.num_classes = num_classes 
+    dataset.num_classes = num_classes
 
-    print('shapes: ', x_train.shape, y_train.shape, x_test.shape, y_test.shape)
     return dataset
 
 
@@ -172,23 +174,38 @@ def train_model(batch_size=64, epochs_per_class=20, num_splits=None):
     x_train, y_train, x_test, y_test = data.get_tuple()
     num_classes = data.num_classes
 
-    if num_splits is None:
+    if isinstance(y_train, tuple) and num_splits is None:
+        print('Splitting into tasks using superclasses.')
+        labels_for_splitting = y_train[1]
+        print('Superclass labels: ', np.unique(labels_for_splitting))
+        num_splits = len(np.unique(labels_for_splitting))
+        num_labels = num_splits
+        y_train = y_train[0]
+    elif isinstance(y_train, tuple):
+        y_train = y_train[0]
+        labels_for_splitting = y_train
+        num_labels = num_classes
+    elif num_splits is None:
         num_splits = num_classes
+        labels_for_splitting = y_train
+        num_labels = num_classes
+
     print('Number of splits: ', num_splits)
 
+    print('Train & test array shapes: ', x_train.shape, y_train.shape, x_test.shape, y_test.shape)
     train_datasets = []
 
     if num_splits > 1:
-        assert  num_classes % num_splits == 0,(
+        assert  num_labels % num_splits == 0, (
             'The number classes should be divisible by the number of splits.')
-        num_concurrent_classes = num_classes // num_splits
-        labels = list(range(num_classes))
+        num_concurrent_labels = num_labels // num_splits
+        labels = list(range(num_labels))
 
         concurrent_labels = None
 
-        for i in range(0, num_classes, num_concurrent_classes):
-            concurrent_labels = labels[i:i+num_concurrent_classes]
-            filter_mask = np.isin(y_train, concurrent_labels)
+        for i in range(0, num_labels, num_concurrent_labels):
+            concurrent_labels = labels[i:i+num_concurrent_labels]
+            filter_mask = np.isin(labels_for_splitting, concurrent_labels)
             x_train_filtered = x_train[filter_mask]
             y_train_filtered = y_train[filter_mask]
             train_datasets.append((x_train_filtered, y_train_filtered))
@@ -264,7 +281,7 @@ def main(argv):
         #  neptune.append_tag(tag)
 
     history = train_model()
-    plot_history(history, FLAGS.gin_file[0].split('/')[1])
+    plot_history(history, FLAGS.gin_file[0].split('/')[1].split('.')[0])
     print('fin')
 
 if __name__ == '__main__':
