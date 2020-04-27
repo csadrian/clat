@@ -14,6 +14,8 @@ from tensorflow.keras.optimizers import SGD
 from tensorflow.keras.layers import Dense, Activation, Flatten, Dropout, Attention, Lambda
 from tensorflow.keras import optimizers, regularizers, callbacks
 #from keras_multi_head import MultiHeadAttention
+from keras.datasets import cifar100
+import cifar100vgg
 
 np.set_printoptions(threshold=sys.maxsize)
 
@@ -51,6 +53,45 @@ def load_data(dataset_name='cifar100', batch_size=None, full_batches_only=True):
     elif dataset_name == 'cifar10_features_from_cifar100vgg':
         train_data_file = 'cifar10_train_features_from_cifar100vgg_max_pooling2d_4.npz'
         test_data_file = 'cifar10_test_features_from_cifar100vgg_max_pooling2d_4.npz'
+    elif dataset_name == 'cifar100_images':
+        num_classes = 100
+        # The data, shuffled and split between train and test sets:
+        (x_train, y_train), (x_test, y_test) = cifar100.load_data()
+        x_train = x_train.astype('float32')
+        x_test = x_test.astype('float32')
+        x_train, x_test = cifar100vgg.cifar100vgg.normalize(x_train, x_test)
+        y_train, y_test = np.reshape(y_train, (-1,)), np.reshape(y_test, (-1,))
+        size = (x_train.shape[0] // batch_size) * batch_size if full_batches_only else x_train.shape[0]
+        x_train = x_train[:size]
+        y_train = y_train[:size]
+
+        size = (x_test.shape[0] // batch_size) * batch_size if full_batches_only else x_test.shape[0]
+        x_test = x_test[:size]
+        y_test = y_test[:size]
+
+        #y_train = keras.utils.to_categorical(y_train, num_classes)
+        #y_test = keras.utils.to_categorical(y_test, num_classes)
+
+        #data augmentation
+        """
+        datagen = ImageDataGenerator(
+            featurewise_center=False,  # set input mean to 0 over the dataset
+            samplewise_center=False,  # set each sample mean to 0
+            featurewise_std_normalization=False,  # divide inputs by std of the dataset
+            samplewise_std_normalization=False,  # divide each input by its std
+            zca_whitening=False,  # apply ZCA whitening
+            rotation_range=15,  # randomly rotate images in the range (degrees, 0 to 180)
+            width_shift_range=0.1,  # randomly shift images horizontally (fraction of total width)
+            height_shift_range=0.1,  # randomly shift images vertically (fraction of total height)
+            horizontal_flip=True,  # randomly flip images
+            vertical_flip=False)  # randomly flip images
+        # (std, mean, and principal components if ZCA whitening is applied).
+       
+        datagen.fit(x_train)
+        """
+        dataset = Dataset(x_train, y_train, x_test, y_test)
+        dataset.num_classes = num_classes
+        return dataset
     else:
         raise Exception(dataset_name + ' not available.')
 
@@ -122,6 +163,40 @@ class Magic(tf.keras.layers.Layer):
     return q, k, v
 
 
+def build_model_cifar100vgg_with_ma(num_classes, v_size=20, q_proj_trainable=True, k_proj_trainable=True, v_proj_trainable=True):
+    cifar100vgg_model = cifar100vgg.cifar100vgg(head=False)
+    model = cifar100vgg_model.model
+    super_head, scores = build_model_meta_attention(num_classes)
+    model.summary()
+    super_head.summary()
+
+    a = tf.keras.Input(batch_shape=(64, 32, 32, 3))
+    x = model(a)
+    x = Flatten()(x)
+    q, k, v = Magic(v_size=v_size, output_dim=num_classes, q_proj_trainable=q_proj_trainable, k_proj_trainable=k_proj_trainable, v_proj_trainable=v_proj_trainable)(x)
+    print(q, k, v)
+    xx = Attention()([q, v, k], mask=None)
+    scores = tf.nn.softmax(tf.matmul(q, tf.transpose(k)))
+    xx_mat = tf.reshape(xx, (64, 512, num_classes))
+    x = tf.einsum('ij,ijk->ik', x, xx_mat)
+
+    z = Activation('softmax')(x)
+    #z = Dense(NUM_CLASSES, activation='softmax')(x)
+    model = Model(inputs=a, outputs=z)
+    model_scores = Model(inputs=a, outputs=scores)
+
+    return model, model_scores
+
+    a = tf.keras.Input(batch_shape=(64, 32, 32, 3))
+    x = model(a)
+    print(x)
+    x = super_head(x)
+    s = scores(x)
+
+    model = Model(inputs=a, outputs=x)
+    model_scores = Model(inputs=a, outputs=s)
+
+    return model, model_scores
 
 def build_model_simple_ff(num_classes):
 
@@ -148,7 +223,8 @@ def build_model_meta_attention(num_classes, v_size=20, q_proj_trainable=True, k_
 
     """
     q, k, v = Magic(v_size=v_size, output_dim=num_classes, q_proj_trainable=q_proj_trainable, k_proj_trainable=k_proj_trainable, v_proj_trainable=v_proj_trainable)(x)
-    xx = Attention()([q, v, k])
+    print(q, k, v)
+    xx = Attention()([q, v, k], mask=None)
 
     scores = tf.nn.softmax(tf.matmul(q, tf.transpose(k)))
     xx_mat = tf.reshape(xx, (64, 512, num_classes))
@@ -167,6 +243,8 @@ def build_model(num_classes, model_name=gin.REQUIRED):
         return build_model_simple_ff(num_classes=num_classes)
     elif model_name == 'meta_attention':
         return build_model_meta_attention(num_classes=num_classes)
+    elif model_name == 'cifar100vgg_with_ma':
+        return build_model_cifar100vgg_with_ma(num_classes=num_classes)
     else:
         raise Exception('Model not implemented: ' + str(model_name))
 
@@ -265,7 +343,7 @@ def train_model(batch_size=64, epochs_per_class=20, num_splits=None):
             canvas.draw()
             plot = PIL.Image.frombytes('RGB', canvas.get_width_height(), canvas.tostring_rgb())
             neptune.send_image('heatmap_c_v', plot)
-
+            plt.clf()
             print('sum counts per v_size: ', np.sum(all_counts, axis=0))
 
     print('\n# Evaluate on test data')

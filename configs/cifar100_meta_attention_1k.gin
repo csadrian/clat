@@ -1,0 +1,9 @@
+load_data.dataset_name = 'cifar100_images'
+
+build_model.model_name = 'cifar100vgg_with_ma'
+
+build_model_meta_attention.v_size=1000
+
+train_model.batch_size = 64
+train_model.epochs_per_class = 20
+
