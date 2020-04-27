@@ -1,6 +1,7 @@
 import matplotlib
 matplotlib.use('Agg')
-import os, sys
+import os, sys, io
+import PIL
 import matplotlib.pyplot as plt
 import seaborn as sns; sns.set()
 import numpy as np
