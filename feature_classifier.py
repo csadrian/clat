@@ -2,6 +2,7 @@ import matplotlib
 matplotlib.use('Agg')
 import os, sys
 import matplotlib.pyplot as plt
+import seaborn as sns; sns.set()
 import numpy as np
 import tensorflow as tf
 import tensorflow_datasets as tfds
@@ -200,11 +201,22 @@ def train_model(batch_size=64, epochs_per_class=20):
         hist_data['val_acc'].extend(history.history['val_acc'])
         hist_data['val_loss'].extend(history.history['val_loss'])
 
-        pred = model_scores.predict(x_test)
-        for j in range(num_classes):
-            counts = np.bincount(np.argmax(pred[(y_test == j)], axis=-1))
-            print('counts: ', j, counts)
-        #print(pred)
+        if gin.query_parameter('build_model.model_name') == 'meta_attention':
+            pred = model_scores.predict(x_test)
+            all_counts = []
+            for j in range(num_classes):
+                counts = np.bincount(np.argmax(pred[(y_test == j)], axis=-1), minlength=gin.query_parameter('build_model_meta_attention.v_size'))
+                all_counts.append(counts)
+                #print('counts: ', j, counts)
+            all_counts = np.array(all_counts)
+            heatmap = sns.heatmap(all_counts)
+            buffer = io.StringIO()
+            canvas = plt.get_current_fig_manager().canvas
+            canvas.draw()
+            plot = PIL.Image.frombytes('RGB', canvas.get_width_height(), canvas.tostring_rgb())
+            neptune.send_image('heatmap_c_v', plot)
+
+            print('sum counts per v_size: ', np.sum(all_counts, axis=0))
 
     print('\n# Evaluate on test data')
     results = model.evaluate(x_test, y_test, batch_size=batch_size)
