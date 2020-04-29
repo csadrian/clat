@@ -40,13 +40,17 @@ class Dataset:
 
 @gin.configurable
 def load_data(dataset_name='cifar100', batch_size=None, full_batches_only=True):
+    print('Loading data: {}.'.format(dataset_name))
 
     if dataset_name == 'cifar100':
-        train_data_file = 'train_cifar100vgg_max_pooling2d_4_features.npz'
-        test_data_file = 'test_cifar100vgg_max_pooling2d_4_features.npz'
+        train_data_file = 'cifar100_train_features_from_cifar100vgg_max_pooling2d_4.npz'
+        test_data_file = 'cifar100_test_features_from_cifar100vgg_max_pooling2d_4.npz'
     elif dataset_name == 'cifar10':
-        train_data_file = 'train_cifar10vgg_max_pooling2d_4_features.npz'
-        test_data_file = 'test_cifar10vgg_max_pooling2d_4_features.npz'
+        train_data_file = 'cifar10_train_features_from_cifar10vgg_max_pooling2d_4.npz'
+        test_data_file = 'cifar10_test_features_from_cifar10vgg_max_pooling2d_4.npz'
+    elif dataset_name == 'cifar10_features_from_cifar100vgg':
+        train_data_file = 'cifar10_train_features_from_cifar100vgg_max_pooling2d_4.npz'
+        test_data_file = 'cifar10_test_features_from_cifar100vgg_max_pooling2d_4.npz'
     else:
         raise Exception(dataset_name + ' not available.')
 
@@ -65,9 +69,9 @@ def load_data(dataset_name='cifar100', batch_size=None, full_batches_only=True):
 
     dataset = Dataset(x_train, y_train, x_test, y_test)
 
-    if 'cifar100' in train_data_file:
+    if train_data_file.startswith('cifar100_'):
         num_classes = 100
-    else:
+    elif train_data_file.startswith('cifar10_'):
         num_classes = 10
 
     dataset.num_classes = num_classes
@@ -185,8 +189,9 @@ def train_model(batch_size=64, epochs_per_class=20, num_splits=None):
         y_train = y_train[0]
         labels_for_splitting = y_train
         num_labels = num_classes
-    elif num_splits is None:
-        num_splits = num_classes
+    else:
+        if num_splits is None:
+            num_splits = num_classes
         labels_for_splitting = y_train
         num_labels = num_classes
 
