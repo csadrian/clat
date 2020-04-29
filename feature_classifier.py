@@ -200,8 +200,8 @@ def build_model_simple_ff(num_classes):
 
 @gin.configurable
 def build_model_meta_attention(num_classes, v_size=20, q_proj_trainable=True, k_proj_trainable=True, v_proj_trainable=True):
-    a = tf.keras.Input(batch_shape=(64, 1, 1, 512))
-    x = Flatten()(a)
+    a = tf.keras.Input(batch_shape=(64, 512))
+    x = a #Flatten()(a)
 
     #x = Lambda(lambda mu: tf.matrix_diag(mu))(x)
     """
