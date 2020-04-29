@@ -163,7 +163,7 @@ class Magic(tf.keras.layers.Layer):
     return q, k, v
 
 
-def build_model_cifar100vgg_with_ma(num_classes, v_size=20, q_proj_trainable=True, k_proj_trainable=True, v_proj_trainable=True):
+def build_model_cifar100vgg_with_ma(num_classes, v_size=100, q_proj_trainable=True, k_proj_trainable=True, v_proj_trainable=True):
     cifar100vgg_model = cifar100vgg.cifar100vgg(head=False)
     model = cifar100vgg_model.model
     super_head, scores = build_model_meta_attention(num_classes)
@@ -173,9 +173,11 @@ def build_model_cifar100vgg_with_ma(num_classes, v_size=20, q_proj_trainable=Tru
     a = tf.keras.Input(batch_shape=(64, 32, 32, 3))
     x = model(a)
     x = Flatten()(x)
+    #x = Dense(512)(x)
+    #x__ = Dense(num_classes)(x)
     q, k, v = Magic(v_size=v_size, output_dim=num_classes, q_proj_trainable=q_proj_trainable, k_proj_trainable=k_proj_trainable, v_proj_trainable=v_proj_trainable)(x)
     print(q, k, v)
-    xx = Attention()([q, v, k], mask=None)
+    xx = Attention()([q, v, k])
     scores = tf.nn.softmax(tf.matmul(q, tf.transpose(k)))
     xx_mat = tf.reshape(xx, (64, 512, num_classes))
     x = tf.einsum('ij,ijk->ik', x, xx_mat)
@@ -329,7 +331,7 @@ def train_model(batch_size=64, epochs_per_class=20, num_splits=None):
         hist_data['val_acc'].extend(history.history['val_acc'])
         hist_data['val_loss'].extend(history.history['val_loss'])
 
-        if gin.query_parameter('build_model.model_name') == 'meta_attention':
+        if gin.query_parameter('build_model.model_name') in ['cifar100vgg_with_ma', 'meta_attention']:
             pred = model_scores.predict(x_test)
             all_counts = []
             for j in range(num_classes):
