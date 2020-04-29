@@ -1,9 +1,11 @@
-load_data.dataset_name = 'cifar100'
-load_data.num_classes = 100
-load_data.train_data_file = 'cifar100_train_features_from_cifar100vgg_max_pooling2d_4.npz'
-load_data.test_data_file = 'cifar100_test_features_from_cifar100vgg_max_pooling2d_4.npz'
+load_data.dataset_name = 'features'
+load_data.num_classes = 10
+load_data.train_data_file = 'cifar10_train_features_from_cifar100vgg_conv2d_11.npz'
+load_data.test_data_file = 'cifar10_test_features_from_cifar100vgg_conv2d_11.npz'
 
 build_model.model_name = 'meta_attention'
+build_model_meta_attention.v_size = 5000
 
 train_model.batch_size = 64
-train_model.epochs_per_class = 20
+train_model.epochs_per_class = 50
+tarin_model.num_splits = 5
