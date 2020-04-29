@@ -41,10 +41,12 @@ class Dataset:
 
 
 @gin.configurable
-def load_data(dataset_name='cifar100', batch_size=None, full_batches_only=True):
+def load_data(dataset_name='cifar100', batch_size=None, full_batches_only=True, train_data_file=None, test_data_file=None, num_classes=100):
     print('Loading data: {}.'.format(dataset_name))
 
-    if dataset_name == 'cifar100':
+    if dataset_name == 'features':
+        pass
+    elif dataset_name == 'cifar100':
         train_data_file = 'cifar100_train_features_from_cifar100vgg_max_pooling2d_4.npz'
         test_data_file = 'cifar100_test_features_from_cifar100vgg_max_pooling2d_4.npz'
     elif dataset_name == 'cifar10':
@@ -109,12 +111,6 @@ def load_data(dataset_name='cifar100', batch_size=None, full_batches_only=True):
         y_test = data['y'][:size]
 
     dataset = Dataset(x_train, y_train, x_test, y_test)
-
-    if train_data_file.startswith('cifar100_'):
-        num_classes = 100
-    elif train_data_file.startswith('cifar10_'):
-        num_classes = 10
-
     dataset.num_classes = num_classes
 
     return dataset
