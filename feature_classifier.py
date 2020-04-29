@@ -46,15 +46,6 @@ def load_data(dataset_name='cifar100', batch_size=None, full_batches_only=True, 
 
     if dataset_name == 'features':
         pass
-    elif dataset_name == 'cifar100':
-        train_data_file = 'cifar100_train_features_from_cifar100vgg_max_pooling2d_4.npz'
-        test_data_file = 'cifar100_test_features_from_cifar100vgg_max_pooling2d_4.npz'
-    elif dataset_name == 'cifar10':
-        train_data_file = 'cifar10_train_features_from_cifar10vgg_max_pooling2d_4.npz'
-        test_data_file = 'cifar10_test_features_from_cifar10vgg_max_pooling2d_4.npz'
-    elif dataset_name == 'cifar10_features_from_cifar100vgg':
-        train_data_file = 'cifar10_train_features_from_cifar100vgg_max_pooling2d_4.npz'
-        test_data_file = 'cifar10_test_features_from_cifar100vgg_max_pooling2d_4.npz'
     elif dataset_name == 'cifar100_images':
         num_classes = 100
         # The data, shuffled and split between train and test sets:
