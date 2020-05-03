@@ -2,8 +2,8 @@ import matplotlib
 matplotlib.use('Agg')
 import os, sys, io
 import PIL
-import matplotlib.pyplot as plt
-import seaborn as sns; sns.set()
+import seaborn as sns; sns.set(style="ticks", font_scale=1.4, rc={"lines.linewidth": 2.5})
+import matplotlib.pyplot as plt; plt.style.use('seaborn-deep')
 import numpy as np
 import tensorflow as tf
 import tensorflow_datasets as tfds
@@ -79,7 +79,7 @@ def load_data(dataset_name='cifar100', batch_size=None, full_batches_only=True, 
             horizontal_flip=True,  # randomly flip images
             vertical_flip=False)  # randomly flip images
         # (std, mean, and principal components if ZCA whitening is applied).
-       
+
         datagen.fit(x_train)
         """
         dataset = Dataset(x_train, y_train, x_test, y_test)
@@ -107,24 +107,49 @@ def load_data(dataset_name='cifar100', batch_size=None, full_batches_only=True, 
     return dataset
 
 
+def fig2img(fig):
+    fig.canvas.draw ( )
+
+    # Get the RGBA buffer from the figure
+    w, h = fig.canvas.get_width_height()
+    buf = np.fromstring (fig.canvas.tostring_argb(), dtype=np.uint8)
+    buf.shape = (w, h, 4)
+
+    # canvas.tostring_argb give pixmap in ARGB mode. Roll the ALPHA channel to have it in RGBA mode
+    buf = np.roll(buf, 3, axis=2)
+    w, h, d = buf.shape
+    return PIL.Image.frombytes("RGBA", (w, h), buf.tostring( ))
+
+
 def plot_history(history, name):
     # Plot training & validation accuracy values
+    fig = plt.figure(figsize=(10,7))
     plt.plot(history['acc'])
     plt.plot(history['val_acc'])
     plt.title(name + ' accuracy')
+    plt.ylim(-0.1, 1.1)
     plt.ylabel('Accuracy')
     plt.xlabel('Epoch')
     plt.legend(['Train', 'Test'], loc='upper left')
-    plt.savefig(name + '_accuracy.png', bbox_inches='tight')
+    fig.tight_layout()
+
+    accuracy_plot = fig2img(fig)
+    neptune.send_image('accuracy', accuracy_plot)
+    plt.clf()
 
     # Plot training & validation loss values
+    fig = plt.figure(figsize=(10,7))
     plt.plot(history['loss'])
     plt.plot(history['val_loss'])
     plt.title(name + ' loss')
     plt.ylabel('Loss')
     plt.xlabel('Epoch')
     plt.legend(['Train', 'Test'], loc='upper left')
-    plt.savefig(name + '_loss.png', bbox_inches='tight')
+    fig.tight_layout()
+
+    loss_plot = fig2img(fig)
+    neptune.send_image('loss', loss_plot)
+    plt.clf()
 
 
 class Magic(tf.keras.layers.Layer):
@@ -354,6 +379,8 @@ def main(argv):
 
     history = train_model()
     plot_history(history, FLAGS.gin_file[0].split('/')[1].split('.')[0])
+    if use_neptune:
+        neptune.stop()
     print('fin')
 
 if __name__ == '__main__':
