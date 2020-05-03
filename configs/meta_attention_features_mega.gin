@@ -8,4 +8,4 @@ build_model_meta_attention.v_size = 5000
 
 train_model.batch_size = 64
 train_model.epochs_per_class = 50
-tarin_model.num_splits = 5
+train_model.num_splits = 5
