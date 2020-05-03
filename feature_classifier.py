@@ -372,15 +372,17 @@ def main(argv):
     use_neptune = "NEPTUNE_API_TOKEN" in os.environ
     if use_neptune:
         neptune.init(project_qualified_name="csadrian/clat")
+
         print(gin.operative_config_str())
         exp = neptune.create_experiment(params={}, name="exp")
         #for tag in opts['tags'].split(','):
         #  neptune.append_tag(tag)
+    else:
+        neptune.init('shared/onboarding', api_token='ANONYMOUS', backend=neptune.OfflineBackend())
 
     history = train_model()
     plot_history(history, FLAGS.gin_file[0].split('/')[1].split('.')[0])
-    if use_neptune:
-        neptune.stop()
+    neptune.stop()
     print('fin')
 
 if __name__ == '__main__':
