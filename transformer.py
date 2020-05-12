@@ -1,3 +1,10 @@
+import matplotlib
+matplotlib.use('Agg')
+import os, sys, io
+import PIL
+import seaborn as sns; sns.set(style="ticks", font_scale=1.4, rc={"lines.linewidth": 2.5})
+import matplotlib.pyplot as plt; plt.style.use('seaborn-deep')
+
 import numpy as np
 import tensorflow as tf
 import tensorflow_datasets as tfds
@@ -8,6 +15,9 @@ from tensorflow.keras.optimizers import SGD
 from tensorflow.keras.layers import Dense, Activation, Flatten, Dropout, Attention
 from tensorflow.keras import optimizers, regularizers, callbacks
 #from keras_multi_head import MultiHeadAttention
+
+import feature_classifier
+import time
 
 
 print(tf.__version__)
@@ -267,6 +277,140 @@ class Transformer(tf.keras.Model):
         return final_output, attention_weights
 
 
+class CustomSchedule(tf.keras.optimizers.schedules.LearningRateSchedule):
+    def __init__(self, d_model, warmup_steps=4000):
+        super(CustomSchedule, self).__init__()
+
+        self.d_model = d_model
+        self.d_model = tf.cast(self.d_model, tf.float32)
+
+        self.warmup_steps = warmup_steps
+
+    def __call__(self, step):
+        arg1 = tf.math.rsqrt(step)
+        arg2 = step * (self.warmup_steps ** -1.5)
+
+        return tf.math.rsqrt(self.d_model) * tf.math.minimum(arg1, arg2)
+
+
+def build_model_transformer():
+    num_layers = 4
+    d_model = 128
+    dff = 512
+    num_heads = 8
+    #input_vocab_size = tokenizer_pt.vocab_size + 2
+    #target_vocab_size = tokenizer_en.vocab_size + 2
+    input_vocab_size = 512
+    target_vocab_size = 10
+    dropout_rate = 0.1
+
+    transformer = Transformer(num_layers, d_model, num_heads, dff,
+                              input_vocab_size, target_vocab_size,
+                              pe_input=input_vocab_size,
+                              pe_target=target_vocab_size,
+                              rate=dropout_rate)
+
+    return d_model, transformer
+
+
+def train_transformer(train_dataset):
+    d_model, transformer = build_model_transformer()
+    learning_rate = CustomSchedule(d_model)
+
+    optimizer = tf.keras.optimizers.Adam(learning_rate, beta_1=0.9, beta_2=0.98, epsilon=1e-9)
+    loss_object = tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True, reduction='none')
+
+    def loss_function(real, pred):
+        mask = tf.math.logical_not(tf.math.equal(real, 0))
+        loss_ = loss_object(real, pred)
+        #print(loss_)
+        mask = tf.cast(mask, dtype=loss_.dtype)
+        loss_ *= mask
+        final_loss = tf.reduce_sum(loss_)/tf.reduce_sum(mask)
+
+        return final_loss
+
+    train_loss = tf.keras.metrics.Mean(name='train_loss')
+    train_accuracy = tf.keras.metrics.SparseCategoricalAccuracy(name='train_accuracy')
+    checkpoint_path = "./checkpoints/train"
+
+    ckpt = tf.train.Checkpoint(transformer=transformer,
+                               optimizer=optimizer)
+
+    ckpt_manager = tf.train.CheckpointManager(ckpt, checkpoint_path, max_to_keep=5)
+
+    # if a checkpoint exists, restore the latest checkpoint.
+    if ckpt_manager.latest_checkpoint:
+        ckpt.restore(ckpt_manager.latest_checkpoint)
+        print ('Latest checkpoint restored!!')
+
+
+    EPOCHS = 20
+    train_step_signature = [
+        tf.TensorSpec(shape=(None, None), dtype=tf.int64),
+        tf.TensorSpec(shape=(None, None), dtype=tf.int64),]
+
+    #@tf.function(input_signature=train_step_signature)
+    @tf.function()
+    def train_step(inp, tar):
+        tar_inp = tar[:, :-1]
+        tar_real = tar[:, 1:]
+
+        #enc_padding_mask, combined_mask, dec_padding_mask = create_masks(inp, tar_inp)
+
+        with tf.GradientTape() as tape:
+            predictions, _ = transformer(inp, tar_inp,
+                                         True, None, None, None)
+                                         #enc_padding_mask,
+                                         #combined_mask,
+                                         #dec_padding_mask)
+            loss = loss_function(tar_real, predictions)
+
+        gradients = tape.gradient(loss, transformer.trainable_variables)
+        optimizer.apply_gradients(zip(gradients, transformer.trainable_variables))
+
+        train_loss(loss)
+        train_accuracy(tar_real, predictions)
+
+    for epoch in range(EPOCHS):
+        start = time.time()
+
+        train_loss.reset_states()
+        train_accuracy.reset_states()
+
+        # inp -> portuguese, tar -> english
+        for (batch, (inp, tar)) in enumerate(train_dataset):
+            train_step(inp, tar)
+
+            if batch % 50 == 0:
+                print ('Epoch {} Batch {} Loss {:.4f} Accuracy {:.4f}'.format(
+                    epoch + 1, batch, train_loss.result(), train_accuracy.result()))
+
+        if (epoch + 1) % 5 == 0:
+            ckpt_save_path = ckpt_manager.save()
+            print ('Saving checkpoint for epoch {} at {}'.format(epoch+1,
+                                                                 ckpt_save_path))
+
+        print ('Epoch {} Loss {:.4f} Accuracy {:.4f}'.format(epoch + 1,
+                                                             train_loss.result(),
+                                                             train_accuracy.result()))
+
+        print ('Time taken for 1 epoch: {} secs\n'.format(time.time() - start))
+
+
+def plot_hist(name, data):
+    fig = plt.figure(figsize=(10,7))
+    sns.distplot(data, bins=20, kde=False)
+    plt.title(name)
+    plt.ylabel('Count')
+    plt.xlabel('Value')
+    fig.tight_layout()
+    hist_plot = feature_classifier.fig2img(fig)
+    hist_plot.save(name + '.png')
+    plt.clf()
+
+
+
 if __name__ == '__main__':
 
     sample_transformer = Transformer(
@@ -283,4 +427,33 @@ if __name__ == '__main__':
                                    dec_padding_mask=None)
 
     print('transformer output shape: ', fn_out.shape)
+    print('Train transformer on conv features.')
+    data = feature_classifier.load_data(dataset_name='features',
+                                        num_classes=100,
+                                        batch_size=64,
+                                        train_data_file='data/cifar10_train_features_from_cifar100vgg_max_pooling2d_4.npz',
+                                        test_data_file='data/cifar10_test_features_from_cifar100vgg_max_pooling2d_4.npz')
+    x_train, y_train, x_test, y_test = data.get_tuple()
+    print(x_train.shape, y_train.shape)
+    print('average: \n', np.average(x_train))
+    dim = x_train.shape[1]
+    tokens = np.eye(dim, dtype=int)
+    print(tokens.shape)
+
+    x_train_tokens = []
+    THRESHOLD = 1.0
+
+    for i in range(x_train.shape[0]):
+        selected_tokens_idcs = np.argwhere(x_train[i] > THRESHOLD).flatten().tolist()
+        x_train_tokens.append(tokens[selected_tokens_idcs])
+    x_train_tokens = np.array(x_train_tokens)
+    print(x_train_tokens.shape)
+
+    from tensorflow.keras.preprocessing.sequence import pad_sequences
+    x_train_tokens_padded = pad_sequences(x_train_tokens, padding='post', value=np.zeros(512))
+
+    y_train_tokens = tf.one_hot(y_train, 10)
+    train_dataset = tf.data.Dataset.from_tensor_slices((x_train_tokens_padded, y_train_tokens)).batch(10).take(10)
+    train_transformer(train_dataset)
+
     print('fin')
