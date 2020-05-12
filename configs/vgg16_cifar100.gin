@@ -1,0 +1,9 @@
+load_data.dataset_name = 'cifar100_images'
+load_data.num_classes = 100
+
+build_model.model_name = 'pretrainedvgg16'
+
+train_model.batch_size = 64
+train_model.epochs_per_split = 50
+train_model.num_splits = 5
+train_model.step_with_generated = True
