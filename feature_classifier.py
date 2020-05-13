@@ -16,6 +16,7 @@ from tensorflow.keras import optimizers, regularizers, callbacks
 #from keras_multi_head import MultiHeadAttention
 from keras.datasets import cifar100
 import cifar100vgg
+import utils
 
 np.set_printoptions(threshold=sys.maxsize)
 
@@ -152,6 +153,29 @@ def plot_history(history, name):
     plt.clf()
 
 
+def plot_images(data, n_x, n_y):
+    (height, width, channel) = data.shape[1:]
+    height_inc = height + 1
+    width_inc = width + 1
+    n = len(data)
+    if n > n_x*n_y: n = n_x * n_y
+
+    if channel == 1:
+        mode = "L"
+        data = data[:,:,:,0]
+        image_data = 50 * np.ones((height_inc * n_y + 1, width_inc * n_x - 1), dtype='uint8')
+    else:
+        mode = "RGB"
+        image_data = 50 * np.ones((height_inc * n_y + 1, width_inc * n_x - 1, channel), dtype='uint8')
+    for idx in range(n):
+        x = idx % n_x
+        y = idx // n_x
+        sample = data[idx]
+        image_data[height_inc*y:height_inc*y+height, width_inc*x:width_inc*x+width] = 255*sample.clip(0, 0.99999)
+    img = PIL.Image.fromarray(image_data, mode=mode)
+    return img
+
+
 class Magic(tf.keras.layers.Layer):
 
   def __init__(self, input_dim=512, k_dim=100, v_size=30, output_dim=100, q_proj_trainable=True, k_proj_trainable=True, v_proj_trainable=True):
@@ -257,9 +281,16 @@ def build_model_pretrainedvgg16(num_classes, input_shape=(32,32,3)):
     base_model.trainable = False
     x = base_model.output
     x = tf.keras.layers.GlobalAveragePooling2D()(x)
+    x = Dense(512)(x)
     logits = Dense(num_classes)(x)
     predicted_probs = Activation('softmax')(logits)
     model = Model(inputs=base_model.input, outputs=predicted_probs)
+    return model, None
+
+
+def build_model_cifar100vgg(num_classes):
+    cifar100vgg_model = cifar100vgg.cifar100vgg(head=True)
+    model = cifar100vgg_model.model
     return model, None
 
 
@@ -273,9 +304,10 @@ def build_model(num_classes, model_name=gin.REQUIRED):
         return build_model_cifar100vgg_with_ma(num_classes=num_classes)
     elif model_name == 'pretrainedvgg16':
         return build_model_pretrainedvgg16(num_classes=num_classes)
+    elif model_name == 'cifar100vgg':
+        return build_model_cifar100vgg(num_classes=num_classes)
     else:
         raise Exception('Model not implemented: ' + str(model_name))
-
 
 
 @gin.configurable
@@ -335,7 +367,8 @@ def train_model(batch_size=64, epochs_per_split=20, num_splits=None, step_with_g
 
     loss_object = tf.keras.losses.SparseCategoricalCrossentropy(from_logits=False)
 
-    optimizer = tf.keras.optimizers.SGD(lr=0.001, decay=1e-6, momentum=0.9, nesterov=True)
+    #optimizer = tf.keras.optimizers.SGD(lr=0.001, decay=1e-6, momentum=0.9, nesterov=True)
+    optimizer = tf.keras.optimizers.Adam(lr=0.001)
 
     train_loss = tf.keras.metrics.Mean(name='train_loss')
     train_accuracy = tf.keras.metrics.SparseCategoricalAccuracy(name='train_accuracy')
@@ -364,7 +397,7 @@ def train_model(batch_size=64, epochs_per_split=20, num_splits=None, step_with_g
         test_accuracy(labels, predictions)
 
 
-    def generate_inputs(labels, batch_size, model, loss_object):
+    def generate_inputs(labels, batch_size, model, loss_object, epsilon=0.1):
         label_batch = np.random.choice(labels, batch_size, p=None)
         shape = model.layers[0].input_shape[0][1:]
         image = 128 * np.ones(shape, dtype=np.uint8)
@@ -382,9 +415,13 @@ def train_model(batch_size=64, epochs_per_split=20, num_splits=None, step_with_g
                 loss = loss_object(true_labels, predicted_probs)
 
             gradients = tape.gradient(loss, gray_imgs_tensor)
-            gray_img_batch = gray_img_batch + gradients
+            #gray_img_batch = gray_img_batch - gradients
+            gray_img_batch = gray_img_batch - epsilon * np.sign(gradients)
 
-        generated_input_batch = gray_img_batch + gradients
+        generated_input_batch = np.clip(gray_img_batch, 0.0, 1.0)
+
+        gen_imgs = plot_images(generated_input_batch, n_x=5, n_y=min(batch_size//5, 10))
+        neptune.send_image('generated imgs for replay', gen_imgs)
 
         generated_ds = tf.data.Dataset.from_tensor_slices((generated_input_batch, label_batch)).batch(batch_size)
         return generated_ds
