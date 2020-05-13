@@ -397,7 +397,7 @@ def train_model(batch_size=64, epochs_per_split=20, num_splits=None, step_with_g
         test_accuracy(labels, predictions)
 
 
-    def generate_inputs(labels, batch_size, model, loss_object, epsilon=0.1):
+    def generate_inputs(labels, batch_size, model, loss_object, global_iters, epsilon=0.1):
         label_batch = np.random.choice(labels, batch_size, p=None)
         shape = model.layers[0].input_shape[0][1:]
         image = 128 * np.ones(shape, dtype=np.uint8)
@@ -421,7 +421,8 @@ def train_model(batch_size=64, epochs_per_split=20, num_splits=None, step_with_g
         generated_input_batch = np.clip(gray_img_batch, 0.0, 1.0)
 
         gen_imgs = plot_images(generated_input_batch, n_x=5, n_y=min(batch_size//5, 10))
-        neptune.send_image('generated imgs for replay', gen_imgs)
+        if global_iters % 100 == 0:
+            neptune.send_image('generated imgs for replay', gen_imgs)
 
         generated_ds = tf.data.Dataset.from_tensor_slices((generated_input_batch, label_batch)).batch(batch_size)
         return generated_ds
@@ -445,6 +446,7 @@ def train_model(batch_size=64, epochs_per_split=20, num_splits=None, step_with_g
         train_ds = tf.data.Dataset.from_tensor_slices((x, y)).batch(num_batches)
         test_ds = tf.data.Dataset.from_tensor_slices((x_test, y_test)).batch(x_test.shape[0]//batch_size)
 
+        global_iters = 0
         for epoch in range(epochs_per_split):
             train_loss.reset_states()
             train_accuracy.reset_states()
@@ -452,7 +454,14 @@ def train_model(batch_size=64, epochs_per_split=20, num_splits=None, step_with_g
             test_accuracy.reset_states()
 
             for images, labels in train_ds:
+                global_iters += 1
                 train_step(images, labels)
+                if step_with_generated and (i > 0):
+                    seen_labels = list(np.array(labels_in_splits[:num_splits]).flat)
+
+                    generated_ds = generate_inputs(seen_labels, batch_size, model, loss_object, global_iters)
+                    for images, labels in generated_ds:
+                        train_step(images, labels)
 
             for test_images, test_labels in test_ds:
                 test_step(test_images, test_labels)
@@ -468,16 +477,6 @@ def train_model(batch_size=64, epochs_per_split=20, num_splits=None, step_with_g
             hist_data['val_acc'].append(test_accuracy.result())
             hist_data['val_loss'].append(test_loss.result())
 
-            if step_with_generated:
-                # step with generated
-                train_loss.reset_states()
-                train_accuracy.reset_states()
-
-                seen_labels = list(np.array(labels_in_splits[:num_splits]).flat)
-
-                generated_ds = generate_inputs(seen_labels, batch_size, model, loss_object)
-                for images, labels in generated_ds:
-                    train_step(images, labels)
 
         if gin.query_parameter('build_model.model_name') in ['cifar100vgg_with_ma', 'meta_attention']:
             pred = model_scores.predict(x_test)

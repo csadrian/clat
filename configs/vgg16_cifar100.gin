@@ -1,7 +1,7 @@
 load_data.dataset_name = 'cifar100_images'
 load_data.num_classes = 100
 
-build_model.model_name = 'pretrainedvgg16'
+build_model.model_name = 'cifar100vgg'
 
 train_model.batch_size = 64
 train_model.epochs_per_split = 50
